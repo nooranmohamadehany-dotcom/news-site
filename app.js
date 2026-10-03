@@ -20,16 +20,26 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtDate = d => new Date(d).toLocaleDateString(L('en-GB', 'ar-EG'), { day: 'numeric', month: 'short', year: 'numeric' });
 
-async function getJSON(url, cache = false) {            // cache = save API quota during the session
-  if (cache && sessionStorage[url]) return JSON.parse(sessionStorage[url]);
-  const r = await fetch(url);
-  if (!r.ok) {
-    let why = ''; try { const j = await r.json(); why = ' - ' + [].concat((j.results && j.results.message) || j.errors || j.error || j.message || '').join(' ') } catch (_) {}
-    throw new Error('Error ' + r.status + why);
+const CACHE_MIN = 30;                                   // minutes to keep saved answers (protects the API limits)
+async function getJSON(url, cache = false) {
+  let hit = null;
+  if (cache) {                                          // saved in the browser, survives refresh
+    try { hit = JSON.parse(localStorage['c:' + url] || 'null'); } catch (_) {}
+    if (hit && Date.now() - hit.t < CACHE_MIN * 60000) return hit.d;
   }
-  const data = await r.json();
-  if (cache) sessionStorage[url] = JSON.stringify(data);
-  return data;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      let why = ''; try { const j = await r.json(); why = ' - ' + [].concat((j.results && j.results.message) || j.errors || j.error || j.message || '').join(' ') } catch (_) {}
+      throw new Error('Error ' + r.status + why);
+    }
+    const data = await r.json();
+    if (cache) try { localStorage['c:' + url] = JSON.stringify({ t: Date.now(), d: data }); } catch (_) {}
+    return data;
+  } catch (e) {
+    if (hit) return hit.d;                              // API failed (e.g. 429) -> show the last saved answer
+    throw e;
+  }
 }
 const msg = (el, t) => el.innerHTML = `<p class="muted">${esc(t)}</p>`;
 
